@@ -98,3 +98,79 @@ fn owned_kitties_can_append_values() {
 //                 );
 //     })
 // }
+
+#[test]
+fn deposit_event_should_work() {
+    new_test_ext().execute_with(|| {
+        System::initialize(
+            &1,
+            &[0u8; 32].into(),
+            &Default::default(),
+            InitKind::Full,
+        );
+        System::note_finished_extrinsics();
+        System::deposit_event(SysEvent::CodeUpdated);
+        System::finalize();
+        assert_eq!(
+            System::events(),
+            vec![
+                EventRecord {
+                    phase: Phase::Finalization,
+                    event: SysEvent::CodeUpdated,
+                    topics: vec![],
+                }
+            ]
+        );
+
+        System::initialize(
+            &2,
+            &[0u8; 32].into(),
+            &Default::default(),
+            InitKind::Full,
+        );
+        System::deposit_event(SysEvent::NewAccount(32));
+        System::note_finished_initialize();
+        System::deposit_event(SysEvent::KilledAccount(42));
+        System::note_applied_extrinsic(&Ok(().into()), Default::default());
+        System::note_applied_extrinsic(
+            &Err(DispatchError::BadOrigin.into()),
+            Default::default()
+        );
+        System::note_finished_extrinsics();
+        System::deposit_event(SysEvent::NewAccount(3));
+        System::finalize();
+        assert_eq!(
+            System::events(),
+            vec![
+                EventRecord {
+                    phase: Phase::Initialization,
+                    event: SysEvent::NewAccount(32),
+                    topics: vec![],
+                },
+                EventRecord {
+                    phase: Phase::ApplyExtrinsic(0),
+                    event: SysEvent::KilledAccount(42),
+                    topics: vec![]
+                },
+                EventRecord {
+                    phase: Phase::ApplyExtrinsic(0),
+                    event: SysEvent::ExtrinsicSuccess(Default::default()),
+                    topics: vec![]
+                },
+                EventRecord {
+                    phase: Phase::ApplyExtrinsic(1),
+                    event: SysEvent::ExtrinsicFailed(
+                        DispatchError::BadOrigin.into(),
+                        Default::default()
+                    ),
+                    topics: vec![]
+                },
+                EventRecord {
+                    phase: Phase::Finalization,
+                    event: SysEvent::NewAccount(3),
+                    topics: vec![]
+                },
+            ]
+        );
+    });
+}
