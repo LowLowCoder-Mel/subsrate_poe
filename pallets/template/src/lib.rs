@@ -45,9 +45,13 @@ decl_event!(
 // Errors inform users that something went wrong.
 decl_error! {
 	pub enum Error for Module<T: Trait> {
+		/// 存证已经存在
 		ProofAlreadyExist,
+		/// 存证不存在
 		ClaimNotExist,
+		/// 不是存证的拥有者
 		NotClaimOwner,
+		/// 存证数据太长
 		ClaimTooLong,
 	}
 }
@@ -63,10 +67,12 @@ decl_module! {
 		// Events must be initialized if they are used by the pallet.
 		fn deposit_event() = default;
 
+		/// 创建存证
 		#[weight = 10_000]
 		pub fn create_claim(origin, claim: Vec<u8>) -> dispatch::DispatchResult {
 			let sender = ensure_signed(origin)?;
 
+			// 这里限制一下存证数据的长度
 			ensure!(claim.len() <= 10, Error::<T>::ClaimTooLong);
 
 			ensure!(!Proofs::<T>::contains_key(&claim), Error::<T>::ProofAlreadyExist);
@@ -80,6 +86,7 @@ decl_module! {
 			Ok(())
 		}
 
+		/// 移除存证
 		#[weight = 10_000]
 		pub fn revoke_claim(origin, claim: Vec<u8>) -> dispatch::DispatchResult {
 			let sender = ensure_signed(origin)?;
@@ -97,6 +104,7 @@ decl_module! {
 			Ok(())
 		}
 
+		/// 转移存证的所有权
 		#[weight = 10_000]
 		pub fn transfer_claim(origin, claim: Vec<u8>, dest: T::AccountId) -> dispatch::DispatchResult {
 			let sender = ensure_signed(origin)?;

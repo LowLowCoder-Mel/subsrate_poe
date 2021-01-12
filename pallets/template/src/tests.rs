@@ -78,7 +78,7 @@ fn transfer_claim_failed_when_claim_no_exist() {
 }
 
 #[test]
-fn overflow_length_transfer_claim() {
+fn transfer_claim_too_long() {
     new_test_ext().execute_with(|| {
         let claim = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
