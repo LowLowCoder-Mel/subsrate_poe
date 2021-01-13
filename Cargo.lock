@@ -3547,7 +3547,6 @@ dependencies = [
  "frame-system",
  "pallet-balances",
  "pallet-randomness-collective-flip",
- "pallet-transaction-payment",
  "parity-scale-codec",
  "sp-core",
  "sp-io",

@@ -12,22 +12,15 @@ use crate::linked_item::{LinkedList, LinkedItem};
 
 mod linked_item;
 
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod mock;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Encode, Decode)]
 pub struct Kitty {
     pub dna: [u8; 16],
-    pub parents: (Option<u32>, Option<u32>),
-}
-
-impl Default for Kitty {
-    fn default() -> Self {
-        Kitty {
-            dna: [0u8; 16],
-            parents: (None, None),
-        }
-    }
 }
 
 pub trait Trait: frame_system::Trait {
@@ -86,10 +79,10 @@ decl_event!(
 		Balance = BalanceOf<T>,
 	{
         /// 创建小猫并质押了一定数量的token.
-		CreatedAndLock(AccountId, KittyIndex, Balance),
+		Created(AccountId, KittyIndex),
 
 		/// 繁衍小猫并质押一定数量的token
-        BreededAndLock(AccountId, KittyIndex, Balance),
+        Breeded(AccountId, KittyIndex),
 
 		/// 一只小猫被转移拥有权.
 		Transferred(AccountId, AccountId, KittyIndex),
@@ -111,53 +104,51 @@ decl_module! {
 
         /// 创建一只小猫
         #[weight = 0]
-        pub fn create(origin, amount: BalanceOf<T>) -> dispatch::DispatchResult {
+        pub fn create(origin) -> dispatch::DispatchResult {
             let sender = ensure_signed(origin)?;
 
-            let kitty_id = Self::next_kitty_id()?;
+            let kitty_index = Self::next_kitty_id()?;
             let dna = Self::random_value(&sender);
-            let kitty = Kitty{ dna: dna, parents: (None, None) };
+            let new_kitty = Kitty{ dna: dna };
 
-            Self::insert_kitty(&sender, kitty_id, kitty);
+            Self::insert_kitty(&sender, kitty_index, new_kitty);
 
-            let lock_id: LockIdentifier = *b"kitties ";
-            // 质押一定数量token
-            T::Currency::set_lock(
-                lock_id,
-                &sender,
-                amount,
-                WithdrawReasons::except(WithdrawReason::TransactionPayment),
-            );
+            // let lock_id: LockIdentifier = *b"kitties ";
+            // // 质押一定数量token
+            // T::Currency::set_lock(
+            //     lock_id,
+            //     &sender,
+            //     amount,
+            //     WithdrawReasons::except(WithdrawReason::TransactionPayment),
+            // );
 
-            Self::deposit_event(RawEvent::CreatedAndLock(sender, kitty_id, amount));
+            Self::deposit_event(RawEvent::Created(sender, kitty_index));
 
             Ok(())
         }
 
         /// 繁殖小猫
 		#[weight = 0]
-		pub fn breed(origin, kitty_id_1: T::KittyIndex, kitty_id_2: T::KittyIndex, amount: BalanceOf<T>) -> dispatch::DispatchResult {
+		pub fn breed(origin, kitty_id_1: T::KittyIndex, kitty_id_2: T::KittyIndex) -> dispatch::DispatchResult {
 			let sender = ensure_signed(origin)?;
 
 			let new_kitty_id = Self::do_breed(&sender, kitty_id_1, kitty_id_2)?;
 
-
-
             // 质押一定数量token
-            let lock_id: LockIdentifier = *b"kitties ";
-			T::Currency::set_lock(
-			    lock_id,
-			    &sender,
-			    amount,
-			    WithdrawReasons::except(WithdrawReason::TransactionPayment),
-			);
+            // let lock_id: LockIdentifier = *b"kitties ";
+			// T::Currency::set_lock(
+			//     lock_id,
+			//     &sender,
+			//     amount,
+			//     WithdrawReasons::except(WithdrawReason::TransactionPayment),
+			// );
 
-			Self::deposit_event(RawEvent::BreededAndLock(sender, new_kitty_id, amount));
+			Self::deposit_event(RawEvent::Breeded(sender, new_kitty_id));
 
 			Ok(())
 		}
 
-		/// 将小猫赠送给其他人
+		/// 将小猫转让给其他人
 		#[weight = 0]
 		pub fn transfer(origin, to: T::AccountId, kitty_id: T::KittyIndex) -> dispatch::DispatchResult {
 			let sender = ensure_signed(origin)?;
@@ -267,9 +258,7 @@ impl<T: Trait> Module<T> {
             new_dna[i] = combine_dna(kitty1_dna[i], kitty2_dna[i], selector[i]);
         }
 
-        // 先这么写，能编译通过
-        Self::insert_kitty(sender, kitty_id,
-                           Kitty{ dna: new_dna, parents: (Some(0u32), Some(1u32)) });
+        Self::insert_kitty(sender, kitty_id, Kitty{ dna: new_dna });
 
         Ok(kitty_id)
     }
