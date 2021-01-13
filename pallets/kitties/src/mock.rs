@@ -80,12 +80,20 @@ type Randomness = pallet_randomness_collective_flip::Module<Test>;
 impl Trait for Test {
 	type Event = TestEvent;
 	type KittyIndex = u32;
-	type Currency = balances::Module<Self>;
+	type Currency = balances::Module<Test>;
 	type Randomness = Randomness;
 }
 
 pub type Kitties = Module<Test>;
 pub type System = system::Module<Test>;
+pub type Balances = balances::Module<Test>;
+
+pub fn last_event() -> TestEvent {
+	system::Module::<Test>::events()
+		.pop()
+		.expect("Event expected")
+		.event
+}
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {

@@ -2,13 +2,14 @@
 
 use frame_support::{
     decl_module, decl_storage, decl_event, decl_error, dispatch, ensure, Parameter,
-    traits::{Randomness, Currency, LockIdentifier, LockableCurrency, ExistenceRequirement, WithdrawReason, WithdrawReasons},
+    traits::{Randomness, Currency, LockableCurrency, ExistenceRequirement, WithdrawReason, WithdrawReasons},
 };
 use frame_system::ensure_signed;
-use sp_io::hashing::blake2_128;
+use sp_io::hashing::{ twox_64, blake2_128 };
 use codec::{Encode, Decode};
 use sp_runtime::{ DispatchError, traits::{ AtLeast32Bit, Bounded, Member } };
 use crate::linked_item::{LinkedList, LinkedItem};
+use sp_std::prelude::*;
 
 mod linked_item;
 
@@ -33,7 +34,7 @@ pub trait Trait: frame_system::Trait {
 type BalanceOf<T> = <<T as Trait>::Currency as Currency<<T as frame_system::Trait>::AccountId>>::Balance;
 type KittyLinkedItem<T> = LinkedItem<<T as Trait>::KittyIndex>;
 type OwnedKittiesList<T> = LinkedList<OwnedKitties<T>, <T as frame_system::Trait>::AccountId, <T as Trait>::KittyIndex>;
-pub type GroupIndex = u32;
+pub const LOCK_AMOUNT: u32 = 5;
 
 decl_storage! {
     trait Store for Module<T: Trait> as Kitties {
@@ -45,18 +46,33 @@ decl_storage! {
 		pub KittiesCount get(fn kitties_count): T::KittyIndex;
 
 		/// 存储自己拥有的Kitties列表.
-		pub OwnedKitties get(fn owned_kitties): map hasher(blake2_128_concat) (T::AccountId, Option<T::KittyIndex>) => Option<KittyLinkedItem<T>>;
+		pub OwnedKitties get(fn owned_kitties):
+		    map hasher(blake2_128_concat) (T::AccountId, Option<T::KittyIndex>) => Option<KittyLinkedItem<T>>;
 
 		/// 存储每个Kitty的拥有者.
-		pub KittyOwners get(fn kitty_owner): map hasher(blake2_128_concat) T::KittyIndex => Option<T::AccountId>;
+		pub KittyOwners get(fn kitty_owner):
+		    map hasher(blake2_128_concat) T::KittyIndex => Option<T::AccountId>;
+
+        /// 存储猫的父母
+        pub KittyParents get(fn kitty_parents):
+            map hasher(blake2_128_concat) T::KittyIndex => (T::KittyIndex, T::KittyIndex);
+
+        /// 存储猫的孩子
+        pub KittyChildren get(fn kitty_children):
+            map hasher(blake2_128_concat) T::KittyIndex => Vec<T::KittyIndex>;
+
+        /// 存储猫的配偶列表
+        pub KittyPartners get(fn kitty_partners):
+            map hasher(blake2_128_concat) T::KittyIndex => Vec<T::KittyIndex>;
 
 		/// 获取Kitty价格. None意味着没有出售.
 		pub KittyPrices get(fn kitty_price): map hasher(blake2_128_concat) T::KittyIndex => Option<BalanceOf<T>>;
 
-		pub MemeberScore get(fn member_score):
-		    double_map hasher(blake2_128_concat) GroupIndex, hasher(blake2_128_concat) T::AccountId => u32;
+		// pub MemberScore get(fn member_score):
+		//     double_map hasher(blake2_128_concat) GroupIndex, hasher(blake2_128_concat) T::AccountId => u32;
 
-		pub GroupMembership get(fn group_membership): map hasher(blake2_128_concat) T::AccountId => GroupIndex;
+		// pub GroupMembership get(fn group_membership):
+		//     map hasher(blake2_128_concat) T::AccountId => GroupIndex;
     }
 }
 
@@ -68,6 +84,7 @@ decl_error! {
 		RequireOwner,
 		NotForSale,
 		PriceTooLow,
+		BalanceNotEnough,
     }
 }
 
@@ -108,19 +125,16 @@ decl_module! {
             let sender = ensure_signed(origin)?;
 
             let kitty_index = Self::next_kitty_id()?;
+
+            // 检测余额
+            Self::check_balance(&sender)?;
+            // 质押一定数量token
+            Self::account_lock(&sender, kitty_index);
+
             let dna = Self::random_value(&sender);
             let new_kitty = Kitty{ dna: dna };
 
             Self::insert_kitty(&sender, kitty_index, new_kitty);
-
-            // let lock_id: LockIdentifier = *b"kitties ";
-            // // 质押一定数量token
-            // T::Currency::set_lock(
-            //     lock_id,
-            //     &sender,
-            //     amount,
-            //     WithdrawReasons::except(WithdrawReason::TransactionPayment),
-            // );
 
             Self::deposit_event(RawEvent::Created(sender, kitty_index));
 
@@ -132,32 +146,32 @@ decl_module! {
 		pub fn breed(origin, kitty_id_1: T::KittyIndex, kitty_id_2: T::KittyIndex) -> dispatch::DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			let new_kitty_id = Self::do_breed(&sender, kitty_id_1, kitty_id_2)?;
+            // 检测余额
+            Self::check_balance(&sender)?;
 
+            // 繁殖小猫
+			let new_kitty_index = Self::do_breed(&sender, kitty_id_1, kitty_id_2)?;
             // 质押一定数量token
-            // let lock_id: LockIdentifier = *b"kitties ";
-			// T::Currency::set_lock(
-			//     lock_id,
-			//     &sender,
-			//     amount,
-			//     WithdrawReasons::except(WithdrawReason::TransactionPayment),
-			// );
+            Self::account_lock(&sender, new_kitty_index);
 
-			Self::deposit_event(RawEvent::Breeded(sender, new_kitty_id));
+			Self::deposit_event(RawEvent::Breeded(sender, new_kitty_index));
 
 			Ok(())
 		}
 
 		/// 将小猫转让给其他人
 		#[weight = 0]
-		pub fn transfer(origin, to: T::AccountId, kitty_id: T::KittyIndex) -> dispatch::DispatchResult {
+		pub fn transfer(origin, to: T::AccountId, kitty_index: T::KittyIndex) -> dispatch::DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			ensure!(<OwnedKitties<T>>::contains_key((&sender, Some(kitty_id))), Error::<T>::RequireOwner);
+			ensure!(<OwnedKitties<T>>::contains_key((&sender, Some(kitty_index))), Error::<T>::RequireOwner);
 
-			Self::do_transfer(&sender, &to, kitty_id);
+            Self::check_balance(&sender)?;
 
-			Self::deposit_event(RawEvent::Transferred(sender, to, kitty_id));
+			Self::do_transfer(&sender, &to, kitty_index);
+			Self::transfer_lock(&sender, &to, kitty_index);
+
+			Self::deposit_event(RawEvent::Transferred(sender, to, kitty_index));
 
 			Ok(())
 		}
@@ -244,8 +258,7 @@ impl<T: Trait> Module<T> {
         ensure!(<OwnedKitties<T>>::contains_key((&sender, Some(kitty_id_2))), Error::<T>::RequireOwner);
         ensure!(kitty_id_1 != kitty_id_2, Error::<T>::RequireDifferentParent);
 
-        let kitty_id = Self::next_kitty_id()?;
-
+        let kitty_index = Self::next_kitty_id()?;
         let kitty1_dna = kitty1.dna;
         let kitty2_dna = kitty2.dna;
 
@@ -258,13 +271,64 @@ impl<T: Trait> Module<T> {
             new_dna[i] = combine_dna(kitty1_dna[i], kitty2_dna[i], selector[i]);
         }
 
-        Self::insert_kitty(sender, kitty_id, Kitty{ dna: new_dna });
+        Self::insert_kitty(sender, kitty_index, Kitty{ dna: new_dna });
+        // 存储这只猫的父母
+        KittyParents::<T>::insert(kitty_index, (kitty_id_1, kitty_id_2));
 
-        Ok(kitty_id)
+        // 存储猫的配偶列表
+        let mut partner_1 = <KittyPartners::<T>>::get(kitty_id_1);
+        partner_1.insert(partner_1.len(), kitty_id_2);
+        let mut partner_2 = <KittyPartners::<T>>::get(kitty_id_2);
+        partner_2.insert(partner_2.len(), kitty_id_1);
+
+        // 将这只猫存储在父母的孩子列表下
+        let mut children_1 = <KittyChildren::<T>>::get(kitty_id_1);
+        children_1.insert(children_1.len(), kitty_index.clone());
+        let mut children_2 = <KittyChildren::<T>>::get(kitty_id_2);
+        children_2.insert(children_2.len(), kitty_index.clone());
+
+        Ok(kitty_index)
     }
 
     fn do_transfer(from: &T::AccountId, to: &T::AccountId, kitty_id: T::KittyIndex) {
         <OwnedKittiesList<T>>::remove(&from, kitty_id);
         Self::insert_owned_kitty(&to, kitty_id);
+    }
+
+    // 检查余额
+    fn check_balance(sender: &T::AccountId) -> sp_std::result::Result<(), DispatchError> {
+        if T::Currency::free_balance(sender) < LOCK_AMOUNT.into() {
+            return Err(Error::<T>::BalanceNotEnough.into());
+        }
+        Ok(())
+    }
+
+    // 生成lock_id
+    fn gen_lock_id(account: &T::AccountId, index: T::KittyIndex) -> [u8; 8] {
+        let payload = (
+            &account,
+            index,
+        );
+        payload.using_encoded(twox_64)
+    }
+
+    // 质押token
+    fn account_lock(sender: &T::AccountId, kitty_index: T::KittyIndex) {
+        let lock_id = Self::gen_lock_id(&sender, kitty_index);
+        T::Currency::set_lock(
+            lock_id,
+            &sender,
+            LOCK_AMOUNT.into(),
+            WithdrawReasons::except(WithdrawReason::TransactionPayment),
+        );
+    }
+
+    // 转移质押的token
+    fn transfer_lock(from: &T::AccountId, to: &T::AccountId, kitty_index: T::KittyIndex) {
+        let old_lock_id = Self::gen_lock_id(to, kitty_index);
+
+        T::Currency::remove_lock(old_lock_id, from);
+
+        Self::account_lock(to, kitty_index);
     }
 }
