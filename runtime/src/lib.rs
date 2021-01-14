@@ -271,7 +271,6 @@ impl pallet_template::Trait for Runtime {
 
 impl pallet_kitties::Trait for Runtime {
 	type Event = Event;
-	/// 2. KittyIndex不在pallet中指定，而是在runtime中指定
 	type KittyIndex = u32;
 	type Currency = Balances;
 	type Randomness = RandomnessCollectiveFlip;

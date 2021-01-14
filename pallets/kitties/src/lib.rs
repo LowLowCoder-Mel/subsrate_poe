@@ -6,9 +6,9 @@ use frame_support::{
 };
 use frame_system::ensure_signed;
 use sp_io::hashing::{ twox_64, blake2_128 };
-use codec::{Encode, Decode};
+use codec::{ Encode, Decode };
 use sp_runtime::{ DispatchError, traits::{ AtLeast32Bit, Bounded, Member } };
-use crate::linked_item::{LinkedList, LinkedItem};
+use crate::linked_item::{ LinkedList, LinkedItem };
 use sp_std::prelude::*;
 
 mod linked_item;
@@ -24,6 +24,8 @@ pub struct Kitty {
     pub dna: [u8; 16],
 }
 
+pub const LOCK_AMOUNT: u32 = 5;
+
 pub trait Trait: frame_system::Trait {
     type Event: From<Event<Self>> + Into<<Self as frame_system::Trait>::Event>;
     type KittyIndex: Parameter + Member + AtLeast32Bit + Bounded + Default + Copy;
@@ -34,7 +36,6 @@ pub trait Trait: frame_system::Trait {
 type BalanceOf<T> = <<T as Trait>::Currency as Currency<<T as frame_system::Trait>::AccountId>>::Balance;
 type KittyLinkedItem<T> = LinkedItem<<T as Trait>::KittyIndex>;
 type OwnedKittiesList<T> = LinkedList<OwnedKitties<T>, <T as frame_system::Trait>::AccountId, <T as Trait>::KittyIndex>;
-pub const LOCK_AMOUNT: u32 = 5;
 
 decl_storage! {
     trait Store for Module<T: Trait> as Kitties {
@@ -95,19 +96,19 @@ decl_event!(
 		<T as Trait>::KittyIndex,
 		Balance = BalanceOf<T>,
 	{
-        /// 创建小猫并质押了一定数量的token.
+        /// 创建小猫
 		Created(AccountId, KittyIndex),
 
-		/// 繁衍小猫并质押一定数量的token
+		/// 繁衍小猫
         Breeded(AccountId, KittyIndex),
 
-		/// 一只小猫被转移拥有权.
+		/// 小猫的拥有权转移
 		Transferred(AccountId, AccountId, KittyIndex),
 
-		/// 一只小猫被挂单.
+		/// 一只小猫被挂单
 		Ask(AccountId, KittyIndex, Option<Balance>),
 
-		/// 一只小猫已出售.
+		/// 一只小猫被出售
 		Sold(AccountId, AccountId, KittyIndex, Balance),
     }
 );
@@ -330,5 +331,12 @@ impl<T: Trait> Module<T> {
         T::Currency::remove_lock(old_lock_id, from);
 
         Self::account_lock(to, kitty_index);
+    }
+
+    // 把AccountId 转成 u8 数组
+    fn account_to_buffer(acc: &T::AccountId) -> [u8; 32] {
+        let v = acc.encode();
+        let b: [u8; 32] = Decode::decode(&mut &v[..]).unwrap();
+        b
     }
 }
