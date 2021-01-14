@@ -1,12 +1,14 @@
 use crate::{ Module, Trait };
-use frame_support::{ impl_outer_origin, impl_outer_event,
-					parameter_types, weights::Weight,
+use frame_support::{
+	impl_outer_origin, impl_outer_event,
+	parameter_types, weights::Weight,
 };
 use sp_runtime::{
-	traits::{BlakeTwo256, IdentityLookup}, testing::Header, Perbill,
+	traits::{ BlakeTwo256, IdentityLookup },
+	testing::Header, Perbill,
 };
-use sp_core::H256;
 use frame_system as system;
+use sp_core::H256;
 use balances;
 
 impl_outer_origin! {
